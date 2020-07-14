@@ -5,6 +5,7 @@ import (
 	"github.com/Maurrici/EncurtadorUrl/url"
 	"log"
 	"net/http"
+	"strings"
 )
 
 var (
@@ -20,7 +21,7 @@ func init(){
 
 func main(){
 	http.HandleFunc("/api/encurtar", Encurtar)
-	//http.HandleFunc("/r/", Redirecionar)
+	http.HandleFunc("/r/", Redirecionar)
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d",porta),nil))
 }
@@ -65,4 +66,15 @@ func extrairUrl(r *http.Request) string{
 	u := make([]byte, r.ContentLength, r.ContentLength)
 	r.Body.Read(u) //Copiando bytes da requisição
 	return string(u)
+}
+
+func Redirecionar(w http.ResponseWriter, r *http.Request){
+	caminho := strings.Split(r.URL.Path,"/")
+	id := caminho[len(caminho)-1]
+
+	if u := url.Buscar(id); u != nil{
+		http.Redirect(w,r,u.Destino,http.StatusMovedPermanently)
+	}else{
+		http.NotFound(w,r)
+	}
 }
