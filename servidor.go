@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"strings"
-	"net/http"
-	"time"
-
 	"github.com/Maurrici/EncurtadorUrl/url"
+	"log"
+	"net/http"
 )
 
 var (
@@ -18,11 +15,12 @@ var (
 func init(){
 	porta = 8888
 	urlBase = fmt.Sprintf("http://localhost:%d", porta)
+	url.ConfigurarRepositorio(url.NovoRepositorioMemoria())
 }
 
 func main(){
 	http.HandleFunc("/api/encurtar", Encurtar)
-	http.HandleFunc("/r/", Redirecionar)
+	//http.HandleFunc("/r/", Redirecionar)
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d",porta),nil))
 }
@@ -37,7 +35,7 @@ func Encurtar(w http.ResponseWriter, r *http.Request){
 		return
 	}
 
-	url, nova, err := url.BuscarOuCriarNovaUrl(extrairUrl(r))
+	u, nova, err := url.BuscarOuCriarNovaUrl(extrairUrl(r))
 
 	if err != nil{
 		responderCom(w, http.StatusBadRequest, nil)
@@ -52,7 +50,7 @@ func Encurtar(w http.ResponseWriter, r *http.Request){
 		status = http.StatusOK
 	}
 
-	urlCurta := fmt.Sprintf("%s/r/%s", urlBase,url.Id)
+	urlCurta := fmt.Sprintf("%s/r/%s", urlBase,u.Id)
 	responderCom(w,status,Headers{"Location": urlCurta})
 }
 
@@ -64,7 +62,7 @@ func responderCom(w http.ResponseWriter, status int, headers Headers){
 }
 
 func extrairUrl(r *http.Request) string{
-	url := make([]byte, r.ContentLength, r.ContentLength)
-	r.Body.Read(url)//Copiando bytes da requisição
-	return string(url)
+	u := make([]byte, r.ContentLength, r.ContentLength)
+	r.Body.Read(u) //Copiando bytes da requisição
+	return string(u)
 }
