@@ -6,11 +6,13 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"encoding/json"
 )
 
 var (
 	porta int
 	urlBase string
+	stats chan string
 )
 
 func init(){
@@ -20,8 +22,13 @@ func init(){
 }
 
 func main(){
+	stats = make(chan string)
+	defer close(stats)
+	go RegistrarEstatistica(stats)
+
 	http.HandleFunc("/api/encurtar", Encurtar)
 	http.HandleFunc("/r/", Redirecionar)
+	http.HandleFunc("/api/stats/", Visualizar)
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d",porta),nil))
 }
@@ -52,7 +59,9 @@ func Encurtar(w http.ResponseWriter, r *http.Request){
 	}
 
 	urlCurta := fmt.Sprintf("%s/r/%s", urlBase,u.Id)
-	responderCom(w,status,Headers{"Location": urlCurta})
+	responderCom(w,status,
+			Headers{"Location": urlCurta,
+							"Link": fmt.Sprintf("%s/api/stats/%s",urlBase,u.Id)})
 }
 
 func responderCom(w http.ResponseWriter, status int, headers Headers){
@@ -74,7 +83,38 @@ func Redirecionar(w http.ResponseWriter, r *http.Request){
 
 	if u := url.Buscar(id); u != nil{
 		http.Redirect(w,r,u.Destino,http.StatusMovedPermanently)
+		stats <- u.Id
 	}else{
 		http.NotFound(w,r)
 	}
+}
+
+func RegistrarEstatistica(ids <-chan string){
+	for id := range ids{
+		url.RegistrarClick(id)
+		fmt.Printf("Clique Registrado para %s",id)
+	}
+}
+
+func Visualizar(w http.ResponseWriter, r *http.Request){
+	caminho := strings.Split(r.URL.Path,"/")
+	id := caminho[len(caminho)-1]
+
+	if u := url.Buscar(id); u != nil {
+		json, err := json.Marshal(u.Stats())
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		responderComJson(w, string(json))
+	}else{
+		http.NotFound(w,r)
+	}
+}
+
+func responderComJson(w http.ResponseWriter, resposta string){
+	responderCom(w, http.StatusOK, Headers{"Content-Type": "application/json"})
+	fmt.Fprintf(w, resposta)
 }
