@@ -7,32 +7,48 @@ import (
 	"net/http"
 	"strings"
 	"encoding/json"
+	"flag"
 )
 
 var (
-	porta int
+	porta *int
+	logLigado *bool
 	urlBase string
-	stats chan string
 )
 
 func init(){
-	porta = 8888
-	urlBase = fmt.Sprintf("http://localhost:%d", porta)
+	porta = flag.Int("p", 8888, "porta")
+	logLigado = flag.Bool("l", true, "log ligado/desligado")
+
+	flag.Parse()
+
+	urlBase = fmt.Sprintf("http://localhost:%d", *porta)
 	url.ConfigurarRepositorio(url.NovoRepositorioMemoria())
 }
 
 func main(){
-	stats = make(chan string)
+	stats := make(chan string)
 	defer close(stats)
 	go RegistrarEstatistica(stats)
 
 	http.HandleFunc("/api/encurtar", Encurtar)
-	http.HandleFunc("/r/", Redirecionar)
+	http.Handle("/r/", &Redirecionar{stats})
 	http.HandleFunc("/api/stats/", Visualizar)
 
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d",porta),nil))
+	logar("Iniciando Servidor na porta %d...",*porta)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d",*porta),nil))
 }
 
+type Redirecionar struct {
+	stats chan string
+}
+
+func (red *Redirecionar) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
+	buscarUrlEExecutar(w, r, func(u *url.Url) {
+		http.Redirect(w, r, u.Destino, http.StatusMovedPermanently)
+		red.stats <- u.Id
+	})
+}
 
 type Headers map[string]string
 
@@ -59,6 +75,9 @@ func Encurtar(w http.ResponseWriter, r *http.Request){
 	}
 
 	urlCurta := fmt.Sprintf("%s/r/%s", urlBase,u.Id)
+
+	logar("URL %s encurtada com sucesso para %s",u.Destino,urlCurta)
+
 	responderCom(w,status,
 			Headers{"Location": urlCurta,
 							"Link": fmt.Sprintf("%s/api/stats/%s",urlBase,u.Id)})
@@ -77,44 +96,43 @@ func extrairUrl(r *http.Request) string{
 	return string(u)
 }
 
-func Redirecionar(w http.ResponseWriter, r *http.Request){
-	caminho := strings.Split(r.URL.Path,"/")
-	id := caminho[len(caminho)-1]
-
-	if u := url.Buscar(id); u != nil{
-		http.Redirect(w,r,u.Destino,http.StatusMovedPermanently)
-		stats <- u.Id
-	}else{
-		http.NotFound(w,r)
-	}
-}
-
 func RegistrarEstatistica(ids <-chan string){
 	for id := range ids{
 		url.RegistrarClick(id)
-		fmt.Printf("Clique Registrado para %s",id)
+		logar("Clique Registrado com Sucesso para %s",id)
 	}
 }
 
 func Visualizar(w http.ResponseWriter, r *http.Request){
-	caminho := strings.Split(r.URL.Path,"/")
-	id := caminho[len(caminho)-1]
-
-	if u := url.Buscar(id); u != nil {
+	buscarUrlEExecutar(w, r, func(u *url.Url) {
 		json, err := json.Marshal(u.Stats())
 
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			return
 		}
 
-		responderComJson(w, string(json))
-	}else{
-		http.NotFound(w,r)
-	}
+		responderComJson(w,string(json))
+	})
 }
 
 func responderComJson(w http.ResponseWriter, resposta string){
 	responderCom(w, http.StatusOK, Headers{"Content-Type": "application/json"})
 	fmt.Fprintf(w, resposta)
+}
+
+func buscarUrlEExecutar(w http.ResponseWriter, r *http.Request, executor func(u *url.Url)){
+	caminho := strings.Split(r.URL.Path,"/")
+	id := caminho[len(caminho)-1]
+
+	if u := url.Buscar(id); u != nil{
+		executor(u)
+	}else{
+		http.NotFound(w, r)
+	}
+}
+
+func logar(formato string, valores ...interface{}){
+	if *logLigado{
+		log.Printf(fmt.Sprintf("%s\n",formato),valores...)
+	}
 }
